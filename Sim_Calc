@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+import sys
+import re
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
+from sklearn.metrics.pairwise import cosine_similarity
+
+# for running array job on cluster
+infile = sys.argv[1]
+taskstotal = int(sys.argv[2])
+task = int(sys.argv[3])
+numrows = len([l for l in open(infile)])-1
+chunksize = int(numrows/taskstotal)
+print(infile, numrows, taskstotal, task, chunksize)
+
+log_file_name ='Output/log.txt'
+
+def WriteLogFile (log_file_name,text):
+    with open(log_file_name,"a") as log_file:
+        log_file.write(test)
+    return
+
+
+def ComputeCosineSimilarity(words_A, words_B):
+
+    # Compile complete set of words in A or B
+    #words = words_A+words_B
+    words = list(set(words_A).union(set(words_B)))
+
+    # Determine which words are in A
+    vector_A = [1 if x in words_A else 0 for x in words]
+
+    # Determine which words are in B
+    vector_B = [1 if x in words_B else 0 for x in words]
+
+    # Compute cosine score using scikit-learn
+    array_A = np.array(vector_A).reshape(1, -1)
+    array_B = np.array(vector_B).reshape(1, -1)
+    cosine_score = cosine_similarity(array_A, array_B)[0, 0]
+
+    return cosine_score
+
+
+def ComputeJaccardSimilarity(words_A, words_B):
+
+    # Count number of words in both A and B
+    words_intersect = len(set(words_A).intersection(set(words_B)))
+
+    # Count number of words in A or B
+    words_union = len(set(words_A).union(set(words_B)))
+
+    # Compute Jaccard similarity score
+    jaccard_score = words_intersect / words_union
+
+    return jaccard_score
+
+# read the file_pairs.csv file to identify file pairs on which to calculate similarity scores
+df4 = pd.read_csv(infile, skiprows=(task-1)*chunksize+1, nrows=chunksize, names=['CIK', 'Month_End', 'QuarterA', 'YearA', 'File_nameA', 'QuarterB', 'YearB', 'File_nameB'])
+
+for index, row in tqdm(df4.iterrows(), total=df4.shape[0]):
+    YearA = row['YearA']
+    QuarterA = row['QuarterA']
+    File_nameA = row['File_nameA']
+    YearB = row['YearB']
+    QuarterB = row['QuarterB']
+    File_nameB = row['File_nameB']
+
+    # open the two identified files fileA and fileB on which to calculate Similarity score
+    file_pathA = "".join(['Data', '/', str(YearA), '/', str(QuarterA), '/', str(File_nameA)])
+    file_pathB = "".join(['Data', '/', str(YearB), '/', str(QuarterB).lstrip(), '/', str(File_nameB).lstrip()])
+    print(str(file_pathA))
+    print(str(file_pathB))	
+    try:	
+        s = open(str(file_pathA), 'r').read()
+    except:
+        text = "".join(['could not open ', str(File_nameA)])
+        WriteLogFile(log_file_name, text)
+        continue
+    #convert loaded file into lower case and make it a list of words (Tokenize) as Cosine sim function takes list as input
+    A = [word.lower() for word in re.split(r'\W+', s)]
+
+
+    try:
+        s = open(str(file_pathB), 'r').read()
+    except:
+        text = "".join(['could not open ', str(File_nameB)])
+        WriteLogFile(log_file_name, text)
+        continue
+   
+    B = [word.lower() for word in re.split(r'\W+', s)]
+
+    # call functions to calculate the similarity scores
+    df4.loc[index, 'Cosine'] = ComputeCosineSimilarity(A, B)
+    df4.loc[index, 'Jaccard'] = ComputeJaccardSimilarity(A, B)
+
+
+df4.to_csv('Output/factor_scores_' + str(task).zfill(3) + '.csv', index=False)
